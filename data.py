@@ -1,16 +1,13 @@
 from enum import Enum, unique
 from pathlib import Path
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Union
 
 import SimpleITK.SimpleITK
 import numpy as np
 import SimpleITK
 
 
-DATA_DIRECTORY = Path().absolute()  # Use current working directory
-LUNA22_DATA_DIRECTORY = DATA_DIRECTORY / "LUNA22 prequel"
-LIDC_NODULE_INFO_FILE = LUNA22_DATA_DIRECTORY / "LIDC-IDRI-1186.npy"
-LIDC_DATA_DIR = LUNA22_DATA_DIRECTORY / "LIDC-IDRI"
+DATASET_TYPE = Dict[str, Union[List[List[int]], np.ndarray]]
 
 
 @unique
@@ -18,6 +15,12 @@ class NoduleType(Enum):
     NonSolid = 1
     PartSolid = 2
     Solid = 3
+
+
+@unique
+class MalignancyType(Enum):
+    Benign = 1
+    Malignant = 2
 
 
 def load_and_resample_nodule_img(
@@ -98,34 +101,57 @@ def get_label_for_texture_values(texture_values: List[int]) -> np.ndarray:
         5: NoduleType.Solid.value,
     }
     output_label = {
-        NoduleType.NonSolid.value: [1.0, 0.0],
-        NoduleType.PartSolid.value: [0.5, 0.5],
-        NoduleType.Solid.value: [0.0, 1.0],
+        NoduleType.NonSolid.value: [1.0, 0.0, 0.0],
+        NoduleType.PartSolid.value: [0.0, 1.0, 0.0],
+        NoduleType.Solid.value: [0.0, 0.0, 1.0],
     }
     values = np.array(list(map(remap_labels.get, texture_values)))
     final_label = int(np.median(values))
     return np.array(output_label[final_label], dtype=np.float32)
 
 
-def load_nodule_information(file_name: Path) -> List[Dict[str, Any]]:
+def get_label_for_malignancy(malignancy_values: List[int]) -> np.ndarray:
+    remap_labels = {
+        1: MalignancyType.Benign.value,
+        2: MalignancyType.Benign.value,
+        3: MalignancyType.Malignant.value,
+        4: MalignancyType.Malignant.value,
+        5: MalignancyType.Malignant.value,
+    }
+    output_label = {
+        MalignancyType.Benign.value: [1.0, 0.0],
+        MalignancyType.Malignant.value: [0.0, 1.0],
+    }
+    values = np.array(list(map(remap_labels.get, malignancy_values)))
+    final_label = int(np.median(values))
+    return np.array(output_label[final_label], dtype=np.float32)
+
+
+def _load_nodule_information(file_name: Path) -> List[Dict[str, Any]]:
     return np.load(str(file_name), allow_pickle=True)
 
 
-def generate_training_dataset(
-    input_size: int = 224, new_spacing_mm: float = 0.2, data_dir: Path = LIDC_DATA_DIR
-) -> Dict[str, np.ndarray]:
-    nodule_info = load_nodule_information(file_name=LIDC_NODULE_INFO_FILE)
+def _generate_training_dataset(
+    input_size: int = 224,
+    new_spacing_mm: float = 0.2,
+    cross_slices_only: bool = True,
+    data_dir: Path = Path().absolute(),
+) -> DATASET_TYPE:
+    nodule_info = _load_nodule_information(file_name=data_dir / "LIDC-IDRI-1186.npy")
 
-    # Create a dataset of [number_of_nodules x 3 x input_size x input_size]
+    # Create a dataset of [number_of_nodules x 3 x input_size x input_size] if using cross slices
     dataset_inputs = np.zeros(
-        (len(nodule_info), 3, input_size, input_size), dtype=np.float32
+        (len(nodule_info), 3 if cross_slices_only else input_size, input_size, input_size), dtype=np.float32
     )
-    dataset_labels = np.zeros((len(nodule_info), 2), dtype=np.float32)
+    labels_malignancy = np.zeros((len(nodule_info), 2), dtype=np.float32)
+    labels_nodule_type = np.zeros((len(nodule_info), 3), dtype=np.float32)
+    labels_malignancy_raw = []
+    labels_nodule_type_raw = []
     for i, nodule in enumerate(nodule_info):
         print(f"{i + 1}/{len(nodule_info)}")
         seriesuid = nodule["SeriesInstanceUID"]
         x, y, z = nodule["VoxelCoordX"], nodule["VoxelCoordY"], nodule["VoxelCoordZ"]
-        data_filename = data_dir / f"{seriesuid}_{x}_{y}_{z}_0000.nii.gz"
+        data_filename = data_dir / "LIDC-IDRI" / f"{seriesuid}_{x}_{y}_{z}_0000.nii.gz"
 
         # Load the nodule data crop and resample it to have isotropic voxel spacing
         # (1 voxel corresponds to new_spacing_mm in mm).
@@ -142,34 +168,52 @@ def generate_training_dataset(
             pad_value=-1024,
         )
 
-        # Only extract the axial/coronal/sagittal center slices of the 50 mm^3 cube
-        nodule_data = get_cross_slices_from_cube(volume=nodule_data)
+        if cross_slices_only:
+            # Extract the axial/coronal/sagittal center slices of the 50 mm^3 cube
+            nodule_data = get_cross_slices_from_cube(volume=nodule_data)
 
         # Store data
         dataset_inputs[i, :] = nodule_data
-        dataset_labels[i, :] = get_label_for_texture_values(
+        labels_nodule_type[i, :] = get_label_for_texture_values(
             texture_values=nodule["Texture"]
         )
+        labels_malignancy[i, :] = get_label_for_malignancy(
+            malignancy_values=nodule["Malignancy"]
+        )
+        # NOTE Number of raw texture and malignancy scores can differ between nodules
+        labels_nodule_type_raw.append(nodule["Texture"])
+        labels_malignancy_raw.append(nodule["Malignancy"])
 
-    return dict(inputs=dataset_inputs, labels=dataset_labels)
+    return dict(
+        inputs=dataset_inputs,
+        labels_nodule_type=labels_nodule_type,
+        labels_malignancy=labels_malignancy,
+        labels_nodule_type_raw=labels_nodule_type_raw,
+        labels_malignancy_raw=labels_malignancy_raw,
+    )
 
 
 def load_dataset(
     input_size: int = 224,
     new_spacing_mm: float = 0.2,
-    dataset_dir: Path = DATA_DIRECTORY,
+    cross_slices_only: bool = True,
+    generated_data_dir: Path = Path().absolute(),
+    source_data_dir: Path = Path().absolute(),
     generate_if_not_present: bool = True,
-) -> Dict[str, np.ndarray]:
-    file_name = dataset_dir / f"train_input_data_{input_size}_{new_spacing_mm}.npz"
-    if not file_name.is_file() and generate_if_not_present:
-        print(f"Dataset file: {file_name} not found, generating the dataset file...")
-        dataset = generate_training_dataset(
-            input_size=input_size, new_spacing_mm=new_spacing_mm
+    always_generate: bool = False,
+) -> DATASET_TYPE:
+    file_name = generated_data_dir / f"train_input_data_{input_size}_{new_spacing_mm}{'_cso' if cross_slices_only else ''}.npz"
+    if always_generate or (not file_name.is_file() and generate_if_not_present):
+        print(f"Generating the dataset file: {file_name} from the source data at: {source_data_dir}")
+        dataset = _generate_training_dataset(
+            input_size=input_size,
+            new_spacing_mm=new_spacing_mm,
+            data_dir=source_data_dir,
         )
         np.savez_compressed(str(file_name), **dataset)
         return dataset
     else:
-        return np.load(str(file_name))
+        return np.load(str(file_name), allow_pickle=True)
 
 
 if __name__ == "__main__":
