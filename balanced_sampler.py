@@ -4,6 +4,19 @@ import numpy as np
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, Iterator
 
 
+def _sanitize_class_balance(
+    classes: List[int], class_balance: Optional[Dict[int, float]] = None
+) -> Dict[int, float]:
+    if class_balance is None:
+        output = {c: 1.0 / len(classes) for c in classes}
+    else:
+        # normalize the class fractions
+        total = np.sum(list(class_balance.values()))
+        output = {c: v / total for c, v in class_balance.items()}
+    assert np.sum(list(output.values())) == 1.0
+    return output
+
+
 def sample_balanced(
     input_labels: np.ndarray,
     required_samples: int,
@@ -16,9 +29,9 @@ def sample_balanced(
     # split input_labels
     classes, indices = np.unique(input_labels, return_index=True)
     classes = list(map(int, classes))
-    if class_balance is None:
-        class_balance = {c: 1.0 / len(classes) for c in classes}
-
+    class_balance = _sanitize_class_balance(
+        classes=classes, class_balance=class_balance
+    )
     index_dict = {
         c: np.where(input_labels == c)[0]
         if not shuffle
@@ -94,12 +107,20 @@ class UndersamplingIterator(Iterator):
 
     def _compute_required_batches(self) -> int:
         classes, counts = np.unique(self._labels_argmax, return_counts=True)
-        if self._class_balance is None:
-            self._class_balance = {c: 1.0 / len(classes) for c in classes}
-        min_class = np.argmin(
-            [self._class_balance[c] * counts[i] for i, c in enumerate(classes)]
+        self._class_balance = _sanitize_class_balance(
+            classes=classes, class_balance=self._class_balance
         )
-        return int(np.floor(counts[min_class] // self._batch_size))
+        min_class = np.argmin(
+            [counts[i] / self._class_balance[c] for i, c in enumerate(classes)]
+        )
+        required_batches = int(
+            np.floor(
+                int(counts[min_class] / self._class_balance[min_class])
+                // self._batch_size
+            )
+        )
+        assert required_batches > 0
+        return required_batches
 
     def on_epoch_end(self):
         """Method called at the end of every epoch.
