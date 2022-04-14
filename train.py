@@ -1,18 +1,19 @@
 from pathlib import Path
 from typing import Tuple
+from enum import Enum, unique
+
+import numpy as np
+import matplotlib.pyplot as plt
 
 import tensorflow.keras
-from enum import Enum, unique
 from tensorflow.keras.applications import VGG16
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.losses import categorical_crossentropy
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, TerminateOnNaN
-import matplotlib.pyplot as plt
 
 from balanced_sampler import sample_balanced, UndersamplingIterator
 from data import load_dataset
-
-import numpy as np
+from utils import maybe_download_vgg16_pretrained_weights
 
 
 # Enforce some Keras backend settings that we need
@@ -37,10 +38,11 @@ PRETRAINED_VGG16_WEIGHTS_FILE = (
     / "pretrained_weights"
     / "vgg16_weights_tf_dim_ordering_tf_kernels.h5"
 )
+maybe_download_vgg16_pretrained_weights(PRETRAINED_VGG16_WEIGHTS_FILE)
 
 
 # Load dataset
-# This method will generate a preprocessed dataset from the source data if it is not present (only need to be done once)
+# This method will generate a preprocessed dataset from the source data if it is not present (only needs to be done once)
 # Otherwise it will quickly load the generated dataset from disk
 full_dataset = load_dataset(
     input_size=224,
