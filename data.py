@@ -137,7 +137,7 @@ def _generate_training_dataset(
     cross_slices_only: bool = True,
     data_dir: Path = Path().absolute(),
 ) -> DATASET_TYPE:
-    nodule_info = _load_nodule_information(file_name=data_dir / "LIDC-IDRI-1186.npy")
+    nodule_info = _load_nodule_information(file_name=data_dir / "LIDC-IDRI_1176.npy")
 
     # Create a dataset of [number_of_nodules x 3 x input_size x input_size] if using cross slices
     dataset_inputs = np.zeros(
