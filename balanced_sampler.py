@@ -80,7 +80,8 @@ class UndersamplingIterator(Iterator):
     def __init__(
         self,
         inputs: np.ndarray,
-        labels: np.ndarray,
+        labels_malignancy: np.ndarray,
+        labels_type: np.ndarray,
         batch_size: int = 32,
         class_balance: Optional[Dict[int, float]] = None,
         shuffle: bool = True,
@@ -88,7 +89,8 @@ class UndersamplingIterator(Iterator):
         seed: np.random.RandomState = None,
     ):
         self._inputs = inputs
-        self._labels = labels
+        self._labels = labels_malignancy  # Malignancy
+        self._labels_extra = labels_type
         self._preprocess_fn = preprocess_fn
         self._labels_argmax = np.argmax(self._labels, axis=1)
         self._batch_size = batch_size
@@ -147,7 +149,8 @@ class UndersamplingIterator(Iterator):
         X, y = self._inputs[indices, :], self._labels[indices, :]
         if self._preprocess_fn is not None:
             X = self._preprocess_fn(X)
-        return X, y
+
+        return X, {'malignancy_regression': y, 'type_classification': self._labels_extra[indices, :]} # self._labels_extra added
 
     def __len__(self) -> int:
         return self._req_batches
