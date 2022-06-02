@@ -12,7 +12,9 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, Terminate
 
 from balanced_sampler import sample_balanced, UndersamplingIterator
 from data import load_dataset
-
+import resnet_3d
+from tensorflow import autograph
+autograph.set_verbosity(1)
 
 # Enforce some Keras backend settings that we need
 # tensorflow.keras.backend.set_image_data_format("channels_first")
@@ -57,7 +59,7 @@ if problem == MLProblem.malignancy_prediction:
     # We made this problem a binary classification problem:
     # 0 - benign, 1 - malignant
     num_classes = 2
-    batch_size = 30
+    batch_size = 2
     # Take approx. 15% of all samples for the validation set and ensure it is a multiple of the batch size
     num_validation_samples = int(len(inputs) * 0.15 / batch_size) * batch_size
     labels = full_dataset["labels_malignancy"]
@@ -186,7 +188,7 @@ def regression_layer(inputs):
     x = tensorflow.keras.layers.Flatten()(x)
     x = tensorflow.keras.layers.Dense(512, activation='relu')(x)
     x = tensorflow.keras.layers.Dense(256, activation='relu')(x)
-    output = tensorflow.keras.layers.Dense(1, activation='sigmoid', name='malignancy_regression')(x)
+    output = tensorflow.keras.layers.Dense(2, activation='sigmoid', name='malignancy_regression')(x)
     return output
 
 
@@ -256,7 +258,9 @@ validation_data_generator = UndersamplingIterator(
 
 malignancy_classes = 1  # Actually 2, but goal is to find value between 0 and 1
 type_classes = 3        # Solid, partly-solid, non-solid
-model = dense_model(malignancy_classes, type_classes)
+# model = dense_model(malignancy_classes, type_classes)
+model = resnet_3d.build_model((64, 64, 64, 1))
+
 model.compile(optimizer=SGD(lr=0.0001),
               loss={'malignancy_regression': mse,
                     'type_classification': categorical_crossentropy},
@@ -305,6 +309,8 @@ output_history_img_file = (
     TRAINING_OUTPUT_DIRECTORY / f"dense_{problem.value}_train_plot.png"
 )
 print(f"Saving training plot to: {output_history_img_file}")
+print(history.history.keys())
+# Possible values: dict_keys(['loss', 'malignancy_regression_loss', 'type_classification_loss', 'malignancy_regression_auc', 'type_classification_categorical_accuracy', 'val_loss', 'val_malignancy_regression_loss', 'val_type_classification_loss', 'val_malignancy_regression_auc', 'val_type_classification_categorical_accuracy'])
 plt.plot(history.history["categorical_accuracy"])
 plt.plot(history.history["val_categorical_accuracy"])
 plt.plot(history.history["loss"])
