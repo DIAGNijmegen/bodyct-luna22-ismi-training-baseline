@@ -1,2 +1,5 @@
 /.idea
 **/*.pyc
+LUNA22 prequel
+train_input_data_224_0.2.npz
+pretrained_weights

@@ -13,8 +13,9 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, Terminate
 from balanced_sampler import sample_balanced, UndersamplingIterator
 from data import load_dataset
 import resnet_3d
+import densenet
 from tensorflow import autograph
-autograph.set_verbosity(1)
+# autograph.set_verbosity(2)
 
 # Enforce some Keras backend settings that we need
 # tensorflow.keras.backend.set_image_data_format("channels_first")
@@ -52,14 +53,14 @@ class MLProblem(Enum):
 
 
 # Here you can switch the machine learning problem to solve
-problem = MLProblem.malignancy_prediction
+problem = MLProblem.nodule_type_prediction
 
 # Configure problem specific parameters
 if problem == MLProblem.malignancy_prediction:
     # We made this problem a binary classification problem:
     # 0 - benign, 1 - malignant
     num_classes = 2
-    batch_size = 2
+    batch_size = 32
     # Take approx. 15% of all samples for the validation set and ensure it is a multiple of the batch size
     num_validation_samples = int(len(inputs) * 0.15 / batch_size) * batch_size
     labels = full_dataset["labels_malignancy"]
@@ -168,75 +169,6 @@ def train_preprocess_fn(input_batch: np.ndarray) -> np.ndarray:
 def validation_preprocess_fn(input_batch: np.ndarray) -> np.ndarray:
     input_batch = shared_preprocess_fn(input_batch=input_batch)
     return input_batch
-
-"""
-End of sequential model
-"""
-
-
-def classification_layer(inputs):
-    x = tensorflow.keras.layers.AveragePooling3D((2, 2, 2))(inputs)
-    x = tensorflow.keras.layers.Flatten()(x)
-    x = tensorflow.keras.layers.Dense(512, activation='relu')(x)
-    x = tensorflow.keras.layers.Dense(256, activation='relu')(x)
-    output = tensorflow.keras.layers.Dense(3, activation='softmax', name='type_classification')(x)
-    return output
-
-
-def regression_layer(inputs):
-    x = tensorflow.keras.layers.AveragePooling3D((2, 2, 2))(inputs)
-    x = tensorflow.keras.layers.Flatten()(x)
-    x = tensorflow.keras.layers.Dense(512, activation='relu')(x)
-    x = tensorflow.keras.layers.Dense(256, activation='relu')(x)
-    output = tensorflow.keras.layers.Dense(2, activation='sigmoid', name='malignancy_regression')(x)
-    return output
-
-
-def add_dense_blocks(inputs, filter_size):
-    for i in range(3):
-        x = tensorflow.keras.layers.Conv3D(filters=filter_size, kernel_size=(1, 1, 1), padding='same')(inputs)
-        inputs = tensorflow.keras.layers.Concatenate()([x, inputs])
-        x = tensorflow.keras.layers.Conv3D(filters=filter_size, kernel_size=(3, 3, 3), padding='same')(inputs)
-        inputs = tensorflow.keras.layers.Concatenate()([x, inputs])
-        filter_size += 32
-    return inputs
-
-
-def add_transition_blocks(x, idx):
-    if idx <= 1:
-        x = tensorflow.keras.layers.Conv3D(filters=80, kernel_size=(1, 1, 1), padding='same')(x)
-        x = tensorflow.keras.layers.MaxPooling3D()(x)
-    elif idx == 2:
-        x = tensorflow.keras.layers.Conv3D(filters=96, kernel_size=(1, 1, 1), padding='same')(x)
-        x = tensorflow.keras.layers.MaxPooling3D(pool_size=(2, 2, 2))(x)
-    elif idx == 3:
-        x = tensorflow.keras.layers.Conv3D(filters=94, kernel_size=(1, 1, 1), padding='same')(x)
-        x = tensorflow.keras.layers.MaxPooling3D(pool_size=(2, 2, 2))(x)
-
-    return x
-
-
-def add_network_blocks(x):
-    filter_list = [160, 176, 184, 188, 190]
-    # Create dense block
-    for block, filter_size in enumerate(filter_list):
-        # Add dense block
-        x = add_dense_blocks(x, filter_size)
-        # Create transition layer
-        x = add_transition_blocks(x, block)
-    return x
-
-
-def dense_model(m_classes, t_classes):
-    input_layer = tensorflow.keras.layers.Input(shape=(64, 64, 64, 1))
-    x = tensorflow.keras.layers.Conv3D(filters=64, kernel_size=(3, 3, 3), padding='same')(input_layer)
-    x = add_network_blocks(x)
-    x = tensorflow.keras.layers.MaxPooling3D()(x)
-
-    output_malignancy = regression_layer(x)
-    output_type = classification_layer(x)
-    d_model = tensorflow.keras.Model(inputs=input_layer, outputs=[output_malignancy, output_type])
-    return d_model
 
 
 training_data_generator = UndersamplingIterator(
