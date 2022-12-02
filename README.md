@@ -1,5 +1,5 @@
 # bodyct-luna22-ismi-baseline
-Repo for training the baseline algorithm for LUNA22-ismi challenge
+Repo for training the baseline algorithm for LUNA22-ISMI educational challenge
 
 
 ## Preparing the dataset
