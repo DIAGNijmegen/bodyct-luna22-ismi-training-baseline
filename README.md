@@ -1,5 +1,5 @@
 # bodyct-luna22-ismi-baseline
-Repo for training the baseline algorithm for LUNA22-ISMI educational challenge, a challenge for the Intelligent Systems in Medical Imaging course at Radboudumc
+Repo for training the baseline algorithm for LUNA22-ISMI educational challenge, a challenge for the Intelligent Systems in Medical Imaging course at the Radboud University.
 
 
 ## Preparing the dataset
